@@ -12,7 +12,6 @@ type NftDeployment @entity(immutable: false) {
     id: ID!
     name: String
     symbol: String
-    tokenUri: String
     blocknumber: BigInt
     timestamp: BigInt
 } 

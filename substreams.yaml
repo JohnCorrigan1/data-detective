@@ -20,7 +20,15 @@ binaries:
 modules:
   - name: map_deployments
     kind: map
-    initialBlock: 14154677
+    initialBlock: 1
+    inputs:
+      - source: sf.ethereum.type.v2.Block
+    output:
+      type: proto:sf.substreams.sink.entity.v1.EntityChanges
+
+  - name: map_deployments_rpc
+    kind: map
+    initialBlock: 1
     inputs:
       - source: sf.ethereum.type.v2.Block
     output:
