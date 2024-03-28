@@ -142,8 +142,8 @@ pub fn process_erc721_contract(
         address: contract_address.clone(),
         name: String::new(),
         symbol: String::new(),
-        blocknumber: String::new(),
-        timestamp_seconds: String::new(),
+        blocknumber: 0,
+        timestamp_seconds: 0,
         code: contract_creation.code.clone(),
         storage_changes: changes.to_vec(),
     };
@@ -242,7 +242,7 @@ pub fn get_token_uri(contract: &Erc721Deployment, token_id: &str) -> Result<Stri
 
     loop {
         let mut active_opcode: Option<Opcode> = None;
-        if let Some((opcode, stack)) = machine.inspect() {
+        if let Some((opcode, _stack)) = machine.inspect() {
             // log::info!(
             //     "Machine active opcode is {}",
             //     // display_opcode_input(opcode, stack),
@@ -274,7 +274,7 @@ pub fn get_token_uri(contract: &Erc721Deployment, token_id: &str) -> Result<Stri
                                     Ok(return_value) => {
                                          return Ok(return_value);
                                     }
-                                    Err(e) => {
+                                    Err(_e) => {
                                         log::info!("failed to decode output for tokenuri");
                                     }
                                 }

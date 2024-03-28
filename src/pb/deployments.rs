@@ -8,10 +8,10 @@ pub struct Erc721Deployment {
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub symbol: ::prost::alloc::string::String,
-    #[prost(string, tag="5")]
-    pub blocknumber: ::prost::alloc::string::String,
-    #[prost(string, tag="6")]
-    pub timestamp_seconds: ::prost::alloc::string::String,
+    #[prost(uint64, tag="5")]
+    pub blocknumber: u64,
+    #[prost(uint64, tag="6")]
+    pub timestamp_seconds: u64,
     #[prost(bytes="vec", tag="7")]
     pub code: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, repeated, tag="8")]
@@ -24,10 +24,10 @@ pub struct Erc721Mint {
     pub token_id: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub address: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
-    pub blocknumber: ::prost::alloc::string::String,
-    #[prost(string, tag="5")]
-    pub timestamp_seconds: ::prost::alloc::string::String,
+    #[prost(uint64, tag="4")]
+    pub blocknumber: u64,
+    #[prost(uint64, tag="5")]
+    pub timestamp_seconds: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

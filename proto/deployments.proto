@@ -6,8 +6,8 @@ message ERC721Deployment {
   string address = 1;
   string name = 2;
   string symbol = 3;
-  string blocknumber = 5;
-  string timestamp_seconds = 6;
+  uint64 blocknumber = 5;
+  uint64 timestamp_seconds = 6;
   bytes code = 7;
   repeated Change storage_changes = 8;
 }
@@ -15,8 +15,8 @@ message ERC721Deployment {
 message ERC721Mint {
   string token_id = 1;
   string address = 3;
-  string blocknumber = 4;
-  string timestamp_seconds = 5;
+  uint64 blocknumber = 4;
+  uint64 timestamp_seconds = 5;
 }
 
 message Change {

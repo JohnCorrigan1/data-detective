@@ -4,8 +4,6 @@ mod pb;
 use abi::erc721::events::Transfer as Erc721TransferEvent;
 use helpers::erc721helpers::*;
 use pb::deployments::{Erc721Deployment, Erc721Mint, MasterProto};
-use std::str::FromStr;
-use substreams::scalar::BigInt;
 use substreams::store::{StoreGet, StoreGetProto, StoreNew, StoreSet, StoreSetProto};
 use substreams::Hex;
 use substreams_entity_change::pb::entity::EntityChanges;
@@ -42,8 +40,8 @@ fn map_blocks(blk: Block) -> Result<MasterProto, substreams::errors::Error> {
                                 mints.push(Erc721Mint {
                                     token_id: transfer.token_id.to_string(),
                                     address: Hex::encode(&log.address),
-                                    blocknumber: blk.number.to_string(),
-                                    timestamp_seconds: blk.timestamp_seconds().to_string(),
+                                    blocknumber: blk.number,
+                                    timestamp_seconds: blk.timestamp_seconds(),
                                 });
                             }
                         }
@@ -83,21 +81,23 @@ pub fn graph_out(
 
                 Err(_e) => String::new(),
             };
-            tables.update_row("NftToken", format!("{}-{}", mint.address, mint.token_id))
-            .set("tokenID", mint.token_id.clone())
-            .set("tokenURI", token_uri)
-            .set("address", mint.address.clone())
-            .set("blocknumber", BigInt::from_str(&mint.blocknumber).unwrap_or(BigInt::from(0)))
-            .set("timestamp_seconds", BigInt::from_str(&mint.timestamp_seconds).unwrap_or(BigInt::from(0)))
-            .set("collection", mint.address.clone());
+            tables
+                .update_row("NftToken", format!("{}-{}", mint.address, mint.token_id))
+                .set("tokenID", &mint.token_id)
+                .set("tokenURI", token_uri)
+                .set("address", &mint.address)
+                .set("blocknumber", mint.blocknumber)
+                .set("timestamp", mint.timestamp_seconds)
+                .set("collection", &mint.address);
         }
     }
-    for contract in master.contracts  {
-        tables.update_row("NftDeployments", contract.address)
-        .set("name", contract.name)
-        .set("symbol", contract.symbol)
-        .set("blocknumber", BigInt::from_str(&contract.blocknumber).unwrap_or(BigInt::from(0)))
-        .set("timestamp_seconds", BigInt::from_str(&contract.timestamp_seconds).unwrap_or(BigInt::from(0)));
+    for contract in master.contracts {
+        tables
+            .update_row("NftDeployment", contract.address)
+            .set("name", contract.name)
+            .set("symbol", contract.symbol)
+            .set("blocknumber", contract.blocknumber)
+            .set("timestamp", contract.timestamp_seconds);
     }
     Ok(tables.to_entity_changes())
 }

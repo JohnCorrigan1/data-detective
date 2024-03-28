@@ -4,3 +4,5 @@
 buf.gen.yaml
 /target
 *.spkg
+/build
+replay.log
