@@ -29,9 +29,7 @@ fn map_blocks(blk: Block) -> Result<MasterProto, substreams::errors::Error> {
         .for_each(|tx| {
             tx.calls
                 .iter()
-                .filter(|call| {
-                    !call.state_reverted && call.call_type == eth::CallType::Create as i32
-                })
+                .filter(|call| !call.state_reverted)
                 .for_each(|call| {
                     let all_calls = tx.calls.as_ref();
                     call.logs.iter().for_each(|log| {
@@ -46,10 +44,11 @@ fn map_blocks(blk: Block) -> Result<MasterProto, substreams::errors::Error> {
                             }
                         }
                     });
-
-                    if let Some(token) = ERC721Creation::from_call(all_calls, call) {
-                        if let Some(deployment) = process_erc721_contract(token) {
-                            deployments.push(deployment);
+                    if call.call_type == eth::CallType::Create as i32 {
+                        if let Some(token) = ERC721Creation::from_call(all_calls, call) {
+                            if let Some(deployment) = process_erc721_contract(token) {
+                                deployments.push(deployment);
+                            }
                         }
                     }
                 });
