@@ -5,6 +5,7 @@ use primitive_types::H256;
 use std::collections::HashMap;
 use std::rc::Rc;
 use substreams::Hex;
+use substreams::log;
 use substreams_ethereum::pb::eth::v2::Call;
 use tiny_keccak::{Hasher, Keccak};
 
@@ -24,6 +25,16 @@ fn contains_erc20_fns(code_string: &str) -> bool {
         && code_string.contains(BALANCE_OF_FN_SIG)
         && code_string.contains(ALLOWANCE_FN_SIG)
         && code_string.contains(TRANSFER_FN_SIG)
+}
+
+trait UsizeConversion {
+    fn to_usize(&self) -> usize;
+}
+
+impl UsizeConversion for H256 {
+    fn to_usize(&self) -> usize {
+        self.to_low_u64_be().try_into().unwrap()
+    }
 }
 
 pub struct ERC20Creation {
@@ -59,10 +70,7 @@ impl ERC20Creation {
 }
 
 pub fn process_erc20_contract(
-    contract_creation: ERC20Creation,
-    // clock: Clock,
-    blocknumber: u64,
-    timestamp_seconds: i64,
+    contract_creation: ERC20Creation
 ) -> Option<Erc20Deployment> {
     let mut contract = Erc20Deployment {
         address: Hex::encode(&contract_creation.address),
@@ -70,28 +78,33 @@ pub fn process_erc20_contract(
         symbol: String::new(),
         total_supply: String::new(),
         decimals: String::new(),
-        blocknumber: blocknumber.to_string(),
-        timestamp_seconds,
+        blocknumber: String::new(),
+        timestamp_seconds: 0,
     };
     let code = Rc::new(contract_creation.code);
+    let log_name = "name";
+    let log_symbol = "symbol";
+    let log_decimals = "decimals";
+    let log_total_supply = "total supply";
 
-    // Name
+    //Name
     match execute_on(
         Hex::encode(&contract_creation.address),
         code.clone(),
         functions::Name {}.encode(),
         &contract_creation.storage_changes,
+        log_name,
     ) {
         Ok(return_value) => match functions::Name::output(return_value.as_ref()) {
             Ok(x) => {
                 contract.name = x;
             }
-            Err(_e) => {
-                // log::info!("Unable to decode output for name: {}", e);
+            Err(e) => {
+                log::info!("Unable to decode output for name: {}", e);
             }
         },
-        Err(_e) => {
-            // log::info!("Error name: {}", e);
+        Err(e) => {
+            log::info!("Error: {}", e);
         }
     }
 
@@ -101,37 +114,39 @@ pub fn process_erc20_contract(
         code.clone(),
         functions::Symbol {}.encode(),
         &contract_creation.storage_changes,
+        log_symbol,
     ) {
         Ok(return_value) => match functions::Symbol::output(return_value.as_ref()) {
             Ok(x) => {
                 contract.symbol = x;
             }
-            Err(_e) => {
-                // log::info!("Unable to decode output for symbol: {}", e);
+            Err(e) => {
+                log::info!("Unable to decode output for symbol: {}", e);
             }
         },
-        Err(_e) => {
-            // log::info!("Error: {}", e);
+        Err(e) => {
+            log::info!("Error: {}", e);
         }
     }
 
-    // Decimals
+    //Decimals
     match execute_on(
         Hex::encode(&contract_creation.address),
         code.clone(),
         functions::Decimals {}.encode(),
         &contract_creation.storage_changes,
+        log_decimals,
     ) {
         Ok(return_value) => match functions::Decimals::output(return_value.as_ref()) {
             Ok(x) => {
                 contract.decimals = x.to_string();
             }
-            Err(_e) => {
-                // log::info!("Unable to decode output for decimals: {}", e);
+            Err(e) => {
+                log::info!("Unable to decode output for decimals: {}", e);
             }
         },
-        Err(_e) => {
-            // log::info!("Error: {}", e);
+        Err(e) => {
+            log::info!("Error: {}", e);
         }
     }
 
@@ -141,17 +156,18 @@ pub fn process_erc20_contract(
         code.clone(),
         functions::TotalSupply {}.encode(),
         &contract_creation.storage_changes,
+        log_total_supply,
     ) {
         Ok(return_value) => match functions::TotalSupply::output(return_value.as_ref()) {
             Ok(x) => {
                 contract.total_supply = x.to_string();
             }
-            Err(_e) => {
-                // log::info!("Unable to decode output for total supply: {}", e);
+            Err(e) => {
+                log::info!("Unable to decode output for total supply: {}", e);
             }
         },
-        Err(_e) => {
-            // log::info!("Error: {}", e);
+        Err(e) => {
+            log::info!("Error: {}", e);
         }
     }
 
@@ -159,25 +175,27 @@ pub fn process_erc20_contract(
 }
 
 fn execute_on(
-    _address: String,
+    address: String,
     code: Rc<Vec<u8>>,
     data: Vec<u8>,
     storage_changes: &HashMap<H256, Vec<u8>>,
+    function_log: &str,
 ) -> Result<Vec<u8>, anyhow::Error> {
     let valids = evm_core::Valids::new(&code);
-    let mut _jump_dest = 0;
+    let mut jump_dest = 0;
     for i in 0..valids.len() {
         if valids.is_valid(i) {
-            _jump_dest += 1;
+            jump_dest += 1;
         }
     }
 
-    // log::info!(
-    //     "ERC20: Trying contract: {:?} with {} valid jump destinations (code len {}))",
-    //     address,
-    //     jump_dest,
-    //     code.len(),
-    // );
+    log::info!(
+        "\n\n\n\n\nERC20: Trying function {:?} for contract: {:?} with {} valid jump destinations (code len {}))",
+        function_log,
+        address,
+        jump_dest,
+        code.len(),
+    );
 
     let mut machine = evm_core::Machine::new(
         code,
@@ -189,11 +207,11 @@ fn execute_on(
 
     loop {
         let mut active_opcode: Option<Opcode> = None;
-        if let Some((opcode, _stack)) = machine.inspect() {
-            // log::info!(
-            //     "Machine active opcode is {}",
-            //     display_opcode_input(opcode, stack),
-            // );
+        if let Some((opcode, stack)) = machine.inspect() {
+            log::info!(
+                "Machine active opcode is {}",
+                display_opcode_input(opcode, stack),
+            );
 
             active_opcode = Some(opcode)
         }
@@ -211,16 +229,16 @@ fn execute_on(
                     evm_core::Capture::Exit(ExitReason::Succeed(reason)) => {
                         match reason {
                             evm_core::ExitSucceed::Stopped => {
-                                // log::info!("EVM stopped gracefully");
+                                log::info!("EVM stopped gracefully");
                             }
                             evm_core::ExitSucceed::Returned => {
                                 let return_value = machine.return_value();
-                                // log::info!("EVM returned gracefully {}", Hex(&return_value));
+                                log::info!("EVM returned gracefully {}", Hex(&return_value));
 
                                 return Ok(return_value);
                             }
                             evm_core::ExitSucceed::Suicided => {
-                                // log::info!("EVM suicided gracefully");
+                                log::info!("EVM suicided gracefully");
                             }
                         }
 
@@ -236,42 +254,41 @@ fn execute_on(
                                 machine.stack_mut().push(H256::zero()).unwrap();
                             }
 
-                            //sha3
+                            // SHA3
                             0x20 => {
-                                let start = machine.stack_mut().pop().unwrap();
-                                let length = machine.stack_mut().pop().unwrap();
-
-                                // Get the data from memory
-                                let data = machine.memory_mut().get(
-                                    start.to_low_u64_be().try_into().unwrap(),
-                                    length.to_low_u64_be().try_into().unwrap(),
-                                );
-
-                                let mut penis = Keccak::v256();
+                                let offset = machine.stack_mut().pop().unwrap();
+                                let data_length = machine.stack_mut().pop().unwrap();
+                                let data_memory = machine
+                                    .memory_mut()
+                                    .get(offset.to_usize(), data_length.to_usize());
+                                let mut hash = Keccak::v256();
                                 let mut output = [0u8; 32];
-                                penis.update(&data);
-                                penis.finalize(&mut output);
-
+                                hash.update(&data_memory);
+                                hash.finalize(&mut output);
                                 machine.stack_mut().push(H256::from_slice(&output)).unwrap();
+
+                                log::info!("SHA3 HANDLED \n");
                             }
 
                             // SLOAD
                             0x54 => {
                                 let key = machine.stack_mut().pop().unwrap();
-                                // substreams::log::info!("popped storage key {:?}", key);
+                                log::info!("storage key {:?}", key);
+
                                 if let Some(value) = storage_changes.get(&key) {
                                     machine.stack_mut().push(H256::from_slice(value)).unwrap();
+                                    log::info!("SLOAD HANDLED \n")
                                 } else {
                                     return Err(anyhow::anyhow!(
                                         "SLOAD unknown storage key {:x}",
                                         key
                                     ));
                                 }
-                                // log::info!("SLOAD HANDLED \n\n\n")
                             }
+
                             _ => {
                                 return Err(anyhow::anyhow!(
-                                    "ERC20: Capture trap unhandled: {:?}",
+                                    "ERC721: Capture trap unhandled: {:?}",
                                     opcode_to_string(opcode)
                                 ));
                             }
@@ -283,7 +300,7 @@ fn execute_on(
     }
 }
 
-fn _display_opcode_input(opcode: evm_core::Opcode, stack: &evm_core::Stack) -> String {
+fn display_opcode_input(opcode: evm_core::Opcode, stack: &evm_core::Stack) -> String {
     match opcode.0 {
         0x10 => display_opcode_with_stack("LT", stack, 2),
         0x11 => display_opcode_with_stack("GT", stack, 2),
@@ -330,151 +347,154 @@ fn display_opcode_with_stack(name: &str, stack: &evm_core::Stack, count: usize) 
 
 fn opcode_to_string(opcode: evm_core::Opcode) -> String {
     match opcode.0 {
-        0x00 => "STOP".to_string(),
-        0x01 => "ADD".to_string(),
-        0x02 => "MUL".to_string(),
-        0x03 => "SUB".to_string(),
-        0x04 => "DIV".to_string(),
-        0x05 => "SDIV".to_string(),
-        0x06 => "MOD".to_string(),
-        0x07 => "SMOD".to_string(),
-        0x08 => "ADDMOD".to_string(),
-        0x09 => "MULMOD".to_string(),
-        0x0a => "EXP".to_string(),
-        0x0b => "SIGNEXTEND".to_string(),
-        0x10 => "LT".to_string(),
-        0x11 => "GT".to_string(),
-        0x12 => "SLT".to_string(),
-        0x13 => "SGT".to_string(),
-        0x14 => "EQ".to_string(),
-        0x15 => "ISZERO".to_string(),
-        0x16 => "AND".to_string(),
-        0x17 => "OR".to_string(),
-        0x18 => "XOR".to_string(),
-        0x19 => "NOT".to_string(),
-        0x1a => "BYTE".to_string(),
-        0x35 => "CALLDATALOAD".to_string(),
-        0x36 => "CALLDATASIZE".to_string(),
-        0x37 => "CALLDATACOPY".to_string(),
-        0x38 => "CODESIZE".to_string(),
-        0x39 => "CODECOPY".to_string(),
-        0x1b => "SHL".to_string(),
-        0x1c => "SHR".to_string(),
-        0x1d => "SAR".to_string(),
-        0x50 => "POP".to_string(),
-        0x51 => "MLOAD".to_string(),
-        0x52 => "MSTORE".to_string(),
-        0x53 => "MSTORE8".to_string(),
-        0x56 => "JUMP".to_string(),
-        0x57 => "JUMPI".to_string(),
-        0x58 => "PC".to_string(),
-        0x59 => "MSIZE".to_string(),
-        0x5b => "JUMPDEST".to_string(),
-        0x5f => "PUSH0".to_string(),
-        0x60 => "PUSH1".to_string(),
-        0x61 => "PUSH2".to_string(),
-        0x62 => "PUSH3".to_string(),
-        0x63 => "PUSH4".to_string(),
-        0x64 => "PUSH5".to_string(),
-        0x65 => "PUSH6".to_string(),
-        0x66 => "PUSH7".to_string(),
-        0x67 => "PUSH8".to_string(),
-        0x68 => "PUSH9".to_string(),
-        0x69 => "PUSH10".to_string(),
-        0x6a => "PUSH11".to_string(),
-        0x6b => "PUSH12".to_string(),
-        0x6c => "PUSH13".to_string(),
-        0x6d => "PUSH14".to_string(),
-        0x6e => "PUSH15".to_string(),
-        0x6f => "PUSH16".to_string(),
-        0x70 => "PUSH17".to_string(),
-        0x71 => "PUSH18".to_string(),
-        0x72 => "PUSH19".to_string(),
-        0x73 => "PUSH20".to_string(),
-        0x74 => "PUSH21".to_string(),
-        0x75 => "PUSH22".to_string(),
-        0x76 => "PUSH23".to_string(),
-        0x77 => "PUSH24".to_string(),
-        0x78 => "PUSH25".to_string(),
-        0x79 => "PUSH26".to_string(),
-        0x7a => "PUSH27".to_string(),
-        0x7b => "PUSH28".to_string(),
-        0x7c => "PUSH29".to_string(),
-        0x7d => "PUSH30".to_string(),
-        0x7e => "PUSH31".to_string(),
-        0x7f => "PUSH32".to_string(),
-        0x80 => "DUP1".to_string(),
-        0x81 => "DUP2".to_string(),
-        0x82 => "DUP3".to_string(),
-        0x83 => "DUP4".to_string(),
-        0x84 => "DUP5".to_string(),
-        0x85 => "DUP6".to_string(),
-        0x86 => "DUP7".to_string(),
-        0x87 => "DUP8".to_string(),
-        0x88 => "DUP9".to_string(),
-        0x89 => "DUP10".to_string(),
-        0x8a => "DUP11".to_string(),
-        0x8b => "DUP12".to_string(),
-        0x8c => "DUP13".to_string(),
-        0x8d => "DUP14".to_string(),
-        0x8e => "DUP15".to_string(),
-        0x8f => "DUP16".to_string(),
-        0x90 => "SWAP1".to_string(),
-        0x91 => "SWAP2".to_string(),
-        0x92 => "SWAP3".to_string(),
-        0x93 => "SWAP4".to_string(),
-        0x94 => "SWAP5".to_string(),
-        0x95 => "SWAP6".to_string(),
-        0x96 => "SWAP7".to_string(),
-        0x97 => "SWAP8".to_string(),
-        0x98 => "SWAP9".to_string(),
-        0x99 => "SWAP10".to_string(),
-        0x9a => "SWAP11".to_string(),
-        0x9b => "SWAP12".to_string(),
-        0x9c => "SWAP13".to_string(),
-        0x9d => "SWAP14".to_string(),
-        0x9e => "SWAP15".to_string(),
-        0x9f => "SWAP16".to_string(),
-        0xf3 => "RETURN".to_string(),
-        0xfd => "REVERT".to_string(),
-        0xfe => "INVALID".to_string(),
-        0xef => "EOFMAGIC".to_string(),
-        0x20 => "SHA3".to_string(),
-        0x30 => "ADDRESS".to_string(),
-        0x31 => "BALANCE".to_string(),
-        0x47 => "SELFBALANCE".to_string(),
-        0x48 => "BASEFEE".to_string(),
-        0x32 => "ORIGIN".to_string(),
-        0x33 => "CALLER".to_string(),
-        0x34 => "CALLVALUE".to_string(),
-        0x3a => "GASPRICE".to_string(),
-        0x3b => "EXTCODESIZE".to_string(),
-        0x3c => "EXTCODECOPY".to_string(),
-        0x3f => "EXTCODEHASH".to_string(),
-        0x3d => "RETURNDATASIZE".to_string(),
-        0x3e => "RETURNDATACOPY".to_string(),
-        0x40 => "BLOCKHASH".to_string(),
-        0x41 => "COINBASE".to_string(),
-        0x42 => "TIMESTAMP".to_string(),
-        0x43 => "NUMBER".to_string(),
-        0x44 => "DIFFICULTY".to_string(),
-        0x45 => "GASLIMIT".to_string(),
-        0x54 => "SLOAD".to_string(),
-        0x55 => "SSTORE".to_string(),
-        0x5a => "GAS".to_string(),
-        0xa0 => "LOG0".to_string(),
-        0xa1 => "LOG1".to_string(),
-        0xa2 => "LOG2".to_string(),
-        0xa3 => "LOG3".to_string(),
-        0xa4 => "LOG4".to_string(),
-        0xf0 => "CREATE".to_string(),
-        0xf5 => "CREATE2".to_string(),
-        0xf1 => "CALL".to_string(),
-        0xf2 => "CALLCODE".to_string(),
-        0xf4 => "DELEGATECALL".to_string(),
-        0xfa => "STATICCALL".to_string(),
-        0xff => "SUICIDE".to_string(),
-        0x46 => "CHAINID".to_string(),
-        x => format!("<UNKNOWN 0x{:x}>", x),
+        0x00 => "STOP: Halts execution".to_string(),
+        0x01 => "ADD: Adds top two stack items".to_string(),
+        0x02 => "MUL: Multiplies top two stack items".to_string(),
+        0x03 => "SUB: Subtracts top two stack items".to_string(),
+        0x04 => "DIV: Divides top two stack items, integer division".to_string(),
+        0x05 => "SDIV: Signed division of top two stack items".to_string(),
+        0x06 => "MOD: Modulus of top two stack items".to_string(),
+        0x07 => "SMOD: Signed modulus of top two stack items".to_string(),
+        0x08 => "ADDMOD: Modular addition of top three stack items".to_string(),
+        0x09 => "MULMOD: Modular multiplication of top three stack items".to_string(),
+        0x0a => "EXP: Exponential operation of top two stack items".to_string(),
+        0x0b => "SIGNEXTEND: Extend length of two's complement signed integer".to_string(),
+        0x10 => "LT: Less than comparison of top two stack items".to_string(),
+        0x11 => "GT: Greater than comparison of top two stack items".to_string(),
+        0x12 => "SLT: Signed less than comparison of top two stack items".to_string(),
+        0x13 => "SGT: Signed greater than comparison of top two stack items".to_string(),
+        0x14 => "EQ: Equality comparison of top two stack items".to_string(),
+        0x15 => "ISZERO: Checks if top stack item is zero".to_string(),
+        0x16 => "AND: Bitwise AND of top two stack items".to_string(),
+        0x17 => "OR: Bitwise OR of top two stack items".to_string(),
+        0x18 => "XOR: Bitwise XOR of top two stack items".to_string(),
+        0x19 => "NOT: Bitwise NOT of the top stack item".to_string(),
+        0x1a => "BYTE: Extracts byte at position from the top stack item".to_string(),
+        0x35 => "CALLDATALOAD: Loads input data in current environment to stack".to_string(),
+        0x36 => "CALLDATASIZE: Gets size of input data in current environment".to_string(),
+        0x37 => "CALLDATACOPY: Copies input data in current environment to memory".to_string(),
+        0x38 => "CODESIZE: Gets the size of the code running in the current environment".to_string(),
+        0x39 => "CODECOPY: Copies the code running in the current environment to memory".to_string(),
+        0x1b => "SHL: Shifts left the second top stack item by the top stack item".to_string(),
+        0x1c => "SHR: Shifts right the second top stack item by the top stack item, without preserving sign".to_string(),
+        0x1d => "SAR: Shifts right the second top stack item by the top stack item, preserving sign".to_string(),
+        0x50 => "POP: Removes the top item from the stack".to_string(),
+        0x51 => "MLOAD: Loads word from memory to the stack".to_string(),
+        0x52 => "MSTORE: Saves a word to memory from the stack".to_string(),
+        0x53 => "MSTORE8: Saves a single byte to memory from the stack".to_string(),
+        0x56 => "JUMP: Alters program counter to the address specified in the top stack item".to_string(),
+        0x57 => "JUMPI: Conditionally alters program counter if the second top stack item is not zero".to_string(),
+        0x58 => "PC: Pushes the program counter to the stack".to_string(),
+        0x59 => "MSIZE: Pushes the size of active memory in bytes to the stack".to_string(),
+        0x5b => "JUMPDEST: Marks a valid destination for jumps".to_string(),
+        0x5f => "PUSH0: Pushes 0 bytes onto the stack (not a standard opcode)".to_string(),
+        0x60 => "PUSH1: Pushes 1 byte onto the stack".to_string(),
+        0x61 => "PUSH2: Pushes 2 bytes onto the stack".to_string(),
+        0x62 => "PUSH3: Pushes 3 bytes onto the stack".to_string(),
+        0x63 => "PUSH4: Pushes 4 bytes onto the stack".to_string(),
+        0x64 => "PUSH5: Pushes 5 bytes onto the stack".to_string(),
+        0x65 => "PUSH6: Pushes 6 bytes onto the stack".to_string(),
+        0x66 => "PUSH7: Pushes 7 bytes onto the stack".to_string(),
+        0x67 => "PUSH8: Pushes 8 bytes onto the stack".to_string(),
+        0x68 => "PUSH9: Pushes 9 bytes onto the stack".to_string(),
+        0x69 => "PUSH10: Pushes 10 bytes onto the stack".to_string(),
+        0x6a => "PUSH11: Pushes 11 bytes onto the stack".to_string(),
+        0x6b => "PUSH12: Pushes 12 bytes onto the stack".to_string(),
+        0x6c => "PUSH13: Pushes 13 bytes onto the stack".to_string(),
+        0x6d => "PUSH14: Pushes 14 bytes onto the stack".to_string(),
+        0x6e => "PUSH15: Pushes 15 bytes onto the stack".to_string(),
+        0x6f => "PUSH16: Pushes 16 bytes onto the stack".to_string(),
+        0x70 => "PUSH17: Pushes 17 bytes onto the stack".to_string(),
+        0x71 => "PUSH18: Pushes 18 bytes onto the stack".to_string(),
+        0x72 => "PUSH19: Pushes 19 bytes onto the stack".to_string(),
+        0x73 => "PUSH20: Pushes 20 bytes onto the stack".to_string(),
+        0x74 => "PUSH21: Pushes 21 bytes onto the stack".to_string(),
+        0x75 => "PUSH22: Pushes 22 bytes onto the stack".to_string(),
+        0x76 => "PUSH23: Pushes 23 bytes onto the stack".to_string(),
+        0x77 => "PUSH24: Pushes 24 bytes onto the stack".to_string(),
+        0x78 => "PUSH25: Pushes 25 bytes onto the stack".to_string(),
+        0x79 => "PUSH26: Pushes 26 bytes onto the stack".to_string(),
+        0x7a => "PUSH27: Pushes 27 bytes onto the stack".to_string(),
+        0x7b => "PUSH28: Pushes 28 bytes onto the stack".to_string(),
+        0x7c => "PUSH29: Pushes 29 bytes onto the stack".to_string(),
+        0x7d => "PUSH30: Pushes 30 bytes onto the stack".to_string(),
+        0x7e => "PUSH31: Pushes 31 bytes onto the stack".to_string(),
+        0x7f => "PUSH32: Pushes 32 bytes onto the stack".to_string(),
+        0x80 => "DUP1: Duplicates the top stack item".to_string(),
+        0x81 => "DUP2: Duplicates the second item from the top of the stack".to_string(),
+        0x82 => "DUP3: Duplicates the third item from the top of the stack".to_string(),
+        0x83 => "DUP4: Duplicates the fourth item from the top of the stack".to_string(),
+        0x84 => "DUP5: Duplicates the fifth item from the top of the stack".to_string(),
+        0x85 => "DUP6: Duplicates the sixth item from the top of the stack".to_string(),
+        0x86 => "DUP7: Duplicates the seventh item from the top of the stack".to_string(),
+        0x87 => "DUP8: Duplicates the eighth item from the top of the stack".to_string(),
+        0x88 => "DUP9: Duplicates the ninth item from the top of the stack".to_string(),
+        0x89 => "DUP10: Duplicates the tenth item from the top of the stack".to_string(),
+        0x8a => "DUP11: Duplicates the eleventh item from the top of the stack".to_string(),
+        0x8b => "DUP12: Duplicates the twelfth item from the top of the stack".to_string(),
+        0x8c => "DUP13: Duplicates the thirteenth item from the top of the stack".to_string(),
+        0x8d => "DUP14: Duplicates the fourteenth item from the top of the stack".to_string(),
+        0x8e => "DUP15: Duplicates the fifteenth item from the top of the stack".to_string(),
+        0x8f => "DUP16: Duplicates the sixteenth item from the top of the stack".to_string(),
+        0x90 => "SWAP1: Swaps the top stack item with the second item".to_string(),
+        0x91 => "SWAP2: Swaps the top stack item with the third item".to_string(),
+        0x92 => "SWAP3: Swaps the top stack item with the fourth item".to_string(),
+        0x93 => "SWAP4: Swaps the top stack item with the fifth item".to_string(),
+        0x94 => "SWAP5: Swaps the top stack item with the sixth item".to_string(),
+        0x95 => "SWAP6: Swaps the top stack item with the seventh item".to_string(),
+        0x96 => "SWAP7: Swaps the top stack item with the eighth item".to_string(),
+        0x97 => "SWAP8: Swaps the top stack item with the ninth item".to_string(),
+        0x98 => "SWAP9: Swaps the top stack item with the tenth item".to_string(),
+        0x99 => "SWAP10: Swaps the top stack item with the eleventh item".to_string(),
+        0x9a => "SWAP11: Swaps the top stack item with the twelfth item".to_string(),
+        0x9b => "SWAP12: Swaps the top stack item with the thirteenth item".to_string(),
+        0x9c => "SWAP13: Swaps the top stack item with the fourteenth item".to_string(),
+        0x9d => "SWAP14: Swaps the top stack item with the fifteenth item".to_string(),
+        0x9e => "SWAP15: Swaps the top stack item with the sixteenth item".to_string(),
+        0x9f => "SWAP16: Swaps the top stack item with the seventeenth item".to_string(),
+        0xf3 => "RETURN: Stops execution and returns data".to_string(),
+        0xfd => "REVERT: Reverts state changes but returns data and consumes all gas".to_string(),
+        0xfe => "INVALID: Designates an invalid instruction".to_string(),
+        0xef => "EOFMAGIC: Marks the end of code in the EOF format".to_string(),
+        0x20 => "SHA3: Computes Keccak-256 hash".to_string(),
+        0x30 => "ADDRESS: Gets the address of the currently executing account".to_string(),
+        0x31 => "BALANCE: Gets the balance of the given account".to_string(),
+        0x47 => "SELFBALANCE: Gets the balance of the currently executing account".to_string(),
+        0x48 => "BASEFEE: Gets the base fee of the current block".to_string(),
+        0x32 => "ORIGIN: Gets the address that originated the transaction".to_string(),
+        0x33 => "CALLER: Gets the address that called the current function".to_string(),
+        0x34 => "CALLVALUE: Gets the value (in wei) sent with the call".to_string(),
+        0x3a => "GASPRICE: Gets the gas price of the transaction".to_string(),
+        0x3b => "EXTCODESIZE: Gets the size of an account's code".to_string(),
+        0x3c => "EXTCODECOPY: Copies an account's code to memory".to_string(),
+        0x3f => "EXTCODEHASH: Gets the hash of an account's code".to_string(),
+        0x3d => "RETURNDATASIZE: Gets the size of the output data from the previous call".to_string(),
+        0x3e => "RETURNDATACOPY: Copies the output data from the previous call to memory".to_string(),
+        0x40 => "BLOCKHASH: Gets the hash of one of the 256 most recent complete blocks".to_string(),
+        0x41 => "COINBASE: Gets the block's beneficiary address".to_string(),
+        0x42 => "TIMESTAMP: Gets the block's timestamp".to_string(),
+        0x43 => "NUMBER: Gets the current block number".to_string(),
+        0x44 => "DIFFICULTY: Gets the difficulty of the current block".to_string(),
+        0x45 => "GASLIMIT: Gets the gas limit of the current block".to_string(),
+        0x54 => "SLOAD: Loads a word from storage".to_string(),
+        0x55 => "SSTORE: Saves a word to storage".to_string(),
+        0x5a => "GAS: Gets the remaining gas".to_string(),
+        0xa0 => "LOG0: Appends log record with no topics".to_string(),
+        0xa1 => "LOG1: Appends log record with one topic".to_string(),
+        0xa2 => "LOG2: Appends log record with two topics".to_string(),
+        0xa3 => "LOG3: Appends log record with three topics".to_string(),
+        0xa4 => "LOG4: Appends log record with four topics".to_string(),
+        0xf0 => "CREATE: Creates a new account with some Wei and initializes code".to_string(),
+        0xf5 => "CREATE2: Creates a new account with some Wei and initializes code, with a salt".to_string(),
+        0xf1 => "CALL: Calls another contract or sends Ether".to_string(),
+        0xf2 => "CALLCODE: Calls another contract with this contract's storage".to_string(),
+        0xf4 => "DELEGATECALL: Calls another contract with this contract's storage and code".to_string(),
+        0xfa => "STATICCALL: Makes a call without allowing state modifications".to_string(),
+        0xff => "SUICIDE (SELFDESTRUCT): Terminates the contract and sends remaining funds to a designated address".to_string(),
+        0x46 => "CHAINID: Gets the chain ID of the current chain".to_string(),
+        x => format!("UNKNOWN OPCODE: 0x{:x}", x),
+    
+        
+
     }
 }
