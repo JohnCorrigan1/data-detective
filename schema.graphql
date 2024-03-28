@@ -1,0 +1,18 @@
+type TokenDeployment @entity(immutable: false) {
+    id: ID!
+    name: String
+    symbol: String
+    decimals: BigInt
+    totalSupply: BigInt
+    blocknumber: BigInt
+    timestamp: BigInt
+}
+
+type NftDeployment @entity(immutable: false) {
+    id: ID!
+    name: String
+    symbol: String
+    tokenUri: String
+    blocknumber: BigInt
+    timestamp: BigInt
+} 

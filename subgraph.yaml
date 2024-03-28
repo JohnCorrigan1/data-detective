@@ -1,0 +1,17 @@
+specVersion: 0.0.4
+description: Eth Denver Hackathon SPS 
+repository: https://github.com/ayechanst/hackathon 
+schema:
+  file: schema.graphql
+
+dataSources:
+  - kind: substreams
+    name: Data_Detective 
+    network: mainnet 
+    source:
+      package:
+        moduleName: map_deployments
+        file: ./data-detective-v0.0.1.spkg
+    mapping:
+      kind: substreams/graph-entities
+      apiVersion: 0.0.5

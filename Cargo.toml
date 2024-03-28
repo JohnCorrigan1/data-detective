@@ -1,0 +1,50 @@
+[package]
+name = "data-detective"
+version = "0.1.0"
+description = "Token Deployment substreams with no rpc calls"
+edition = "2021"
+repository = "https://github.com/JohnCorrigan1/data-detective"
+license = "GNU GENERAL PUBLIC LICENSE Version 3"
+
+[lib]
+name = "substreams"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1"
+ethabi = "17"
+hex-literal = "0.3"
+num-bigint = "0.4"
+prost = "0.11"
+regex = "1"
+evm-core = "0.39"
+tiny-keccak = "2"
+primitive-types = "0.12"
+# Use latest from https://crates.io/crates/substreams
+substreams = "0.5"
+substreams-entity-change = "1.3.1"
+# Use latest from https://crates.io/crates/substreams-database-change
+substreams-database-change = "1.2"
+# Use latest from https://crates.io/crates/substreams-ethereum
+substreams-ethereum = "0.9"
+
+[dependencies.uuid]
+version = "1.7.0"
+features = [
+    "v4",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
+
+# Required so that ethabi > ethereum-types build correctly under wasm32-unknown-unknown
+[target.wasm32-unknown-unknown.dependencies]
+getrandom = { version = "0.2", features = ["custom"] }
+
+[build-dependencies]
+anyhow = "1"
+substreams-ethereum = "0.9"
+
+[profile.release]
+lto = true
+opt-level = 's'
+strip = "debuginfo"

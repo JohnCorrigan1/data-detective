@@ -1,0 +1,29 @@
+specVersion: v0.1.0
+package:
+  name: "data_detective"
+  version: v0.0.1
+
+imports:
+  entities: https://github.com/streamingfast/substreams-sink-entity-changes/releases/download/v1.3.0/substreams-sink-entity-changes-v1.3.0.spkg
+
+protobuf:
+  files:
+    - deployments.proto
+  importPaths:
+    - ./proto
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/substreams.wasm
+
+modules:
+  - name: map_deployments
+    kind: map
+    initialBlock: 14154677
+    inputs:
+      - source: sf.ethereum.type.v2.Block
+    output:
+      type: proto:sf.substreams.sink.entity.v1.EntityChanges
+
+network: mainnet
