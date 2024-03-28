@@ -13,7 +13,7 @@ build:
 
 .PHONY: run
 run: build
-	substreams run -e $(MAINNET) substreams.yaml map_deployments -s $(PIXELMON) -t $(STOP_BLOCK)
+	substreams run -e $(MAINNET) substreams.yaml graph_out -s $(PIXELMON) -t $(STOP_BLOCK)
 
 .PHONY: gui
 gui: build

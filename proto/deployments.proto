@@ -2,20 +2,29 @@ syntax = "proto3";
 
 package deployments;
 
-message ERC20Deployment {
-  string address = 1;
-  string name = 2;
-  string symbol = 3;
-  string total_supply = 4;
-  string decimals = 5;
-  string blocknumber = 6;
-  int64 timestamp_seconds = 7;
-}
-
 message ERC721Deployment {
   string address = 1;
   string name = 2;
   string symbol = 3;
   string blocknumber = 5;
-  int64 timestamp_seconds = 6;
+  string timestamp_seconds = 6;
+  bytes code = 7;
+  repeated Change storage_changes = 8;
+}
+
+message ERC721Mint {
+  string token_id = 1;
+  string address = 3;
+  string blocknumber = 4;
+  string timestamp_seconds = 5;
+}
+
+message Change {
+  bytes key = 1;
+  bytes new_value = 2;
+}
+
+message MasterProto {
+  repeated ERC721Mint mints = 1;
+  repeated ERC721Deployment contracts = 2;
 }

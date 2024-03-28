@@ -1,8 +1,11 @@
+extern crate regex;
 use crate::abi::erc721::functions;
-use crate::pb::deployments::Erc721Deployment;
+use crate::pb::deployments::{Change, Erc721Deployment};
 use evm_core::{ExitReason, Opcode};
 use primitive_types::H256;
+use substreams::scalar::BigInt;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::rc::Rc;
 use substreams::log;
 use substreams::Hex;
@@ -10,17 +13,21 @@ use substreams_ethereum::pb::eth::v2::{Call, CallType, StorageChange};
 use tiny_keccak::{Hasher, Keccak};
 
 
+
 const SAFE_TRANSFER_FROM_FN_SIG: &str = "b88d4fde";
 const NAME_FN_SIG: &str = "06fdde03";
 const SYMBOL_FN_SIG: &str = "95d89b41";
 const TOKENURI_FN_SIG: &str = "c87b56dd";
 
-pub fn contains_erc721_fns(code_string: &str) -> bool {
+
+fn contains_erc721_fns(code_string: &str) -> bool {
     code_string.contains(SAFE_TRANSFER_FROM_FN_SIG)
         && code_string.contains(NAME_FN_SIG)
         && code_string.contains(SYMBOL_FN_SIG)
         && code_string.contains(TOKENURI_FN_SIG)
 }
+
+
 
 trait UsizeConversion {
     fn to_usize(&self) -> usize;
@@ -31,7 +38,6 @@ impl UsizeConversion for H256 {
         self.to_low_u64_be().try_into().unwrap()
     }
 }
-
 enum ParentCallType<'a> {
     Normal(&'a Call),
     Delegate(&'a Call),
@@ -39,7 +45,7 @@ enum ParentCallType<'a> {
 }
 
 impl ParentCallType<'_> {
-    pub fn new<'a>(calls: &'a Vec<Call>, current_call: &Call) -> ParentCallType<'a> {
+    pub fn new<'a>(calls: &'a Vec<Call>, current_call: &'a Call) -> ParentCallType<'a> {
         let parent_call_index = current_call.parent_index as usize;
         let parent_call = calls.get(parent_call_index);
         if let Some(parent_call) = parent_call {
@@ -56,7 +62,7 @@ impl ParentCallType<'_> {
 
 struct StorageChanges(HashMap<H256, Vec<u8>>);
 impl StorageChanges {
-    pub fn new(changes: &Vec<StorageChange>) -> Self {
+    pub fn new<'a>(changes: &'a Vec<&'a StorageChange>) -> Self {
         let storage_changes = changes
             .iter()
             .map(|s| (H256::from_slice(s.key.as_ref()), s.new_value.to_vec()))
@@ -65,63 +71,81 @@ impl StorageChanges {
     }
 }
 
-pub struct ERC721Creation {
+pub struct ERC721Creation<'a> {
     pub address: Vec<u8>,
     pub code: Vec<u8>,
-    pub storage_changes: HashMap<H256, Vec<u8>>,
+    pub storage_changes: Vec<&'a StorageChange>,
 }
 
-impl ERC721Creation {
-    pub fn from_call(calls: &Vec<Call>, call: &Call) -> Option<Self> {
+impl<'a> ERC721Creation<'a> {
+    pub fn from_call(calls: &'a Vec<Call>, call: &'a Call) -> Option<Self> {
         if let Some(last_code_change) = call.code_changes.iter().last() {
-            let code = &last_code_change.new_code;
-            let address = &call.address;
-            let code_string = Hex::encode(&code);
-            if contains_erc721_fns(&code_string) {
-                match ParentCallType::new(&calls, call) {
-                    ParentCallType::Normal(_parent_call) => {
-                        return Some(Self {
-                            address: address.to_vec(),
-                            code: code.to_vec(),
-                            storage_changes: StorageChanges::new(&call.storage_changes).0,
-                        });
+                        let code = &last_code_change.new_code;
+                        let address = &call.address;
+                        let code_string = Hex::encode(&code);
+        
+                        if contains_erc721_fns(&code_string) {
+                            substreams::log::info!("found functions");
+        
+                            match ParentCallType::new(&calls, call) {
+                                ParentCallType::Normal(_parent_call) => {
+                                    substreams::log::info!("Normal parent calltype");
+                                    let storage_ref: Vec<&StorageChange> =
+                                        call.storage_changes.iter().collect();
+                                    return Some(Self {
+                                        address: address.to_vec(),
+                                        code: code.to_vec(),
+                                        storage_changes: storage_ref,
+                                    });
+                                }
+        
+                                ParentCallType::Delegate(parent_call) => {
+                                    let storage_ref: Vec<&StorageChange> =
+                                        parent_call.storage_changes.iter().collect();
+                                    return Some(Self {
+                                        address: address.to_vec(),
+                                        code: code.to_vec(),
+                                        storage_changes: storage_ref,
+                                    });
+                                }
+        
+                                ParentCallType::None => {
+                                    log::info!("no proxy found{:?}", address);
+                                    let storage_ref: Vec<&StorageChange> =
+                                        call.storage_changes.iter().collect();
+                                    return Some(Self {
+                                        address: address.to_vec(),
+                                        code: code.to_vec(),
+                                        storage_changes: storage_ref,
+                                    });
+                                }
+                            };
+                        }
                     }
-
-                    ParentCallType::Delegate(parent_call) => {
-                        let storage_changes = StorageChanges::new(&parent_call.storage_changes).0;
-                        return Some(Self {
-                            address: address.to_vec(),
-                            code: code.to_vec(),
-                            storage_changes,
-                        });
-                    }
-
-                    ParentCallType::None => {
-                        let storage_changes = StorageChanges::new(&call.storage_changes).0;
-                        return Some(Self {
-                            address: address.to_vec(),
-                            code: code.to_vec(),
-                            storage_changes,
-                        });
-                    }
-                };
-            }
-        }
-        // }
-        None
+                None
     }
 }
 
 pub fn process_erc721_contract(
     contract_creation: ERC721Creation
 ) -> Option<Erc721Deployment> {
+    let changes: &Vec<Change> = &contract_creation
+        .storage_changes
+        .iter()
+        .map(|storage_change| Change {
+            key: storage_change.key.clone(),
+            new_value: storage_change.new_value.clone(),
+        })
+        .collect();
     let contract_address = Hex::encode(&contract_creation.address);
     let mut contract = Erc721Deployment {
         address: contract_address.clone(),
         name: String::new(),
         symbol: String::new(),
         blocknumber: String::new(),
-        timestamp_seconds: 0,
+        timestamp_seconds: String::new(),
+        code: contract_creation.code.clone(),
+        storage_changes: changes.to_vec(),
     };
 
     let code = Rc::new(contract_creation.code);
@@ -174,12 +198,156 @@ pub fn process_erc721_contract(
     Some(contract)
 }
 
+pub fn get_token_uri(contract: &Erc721Deployment, token_id: &str) -> Result<String, anyhow::Error> {
+    let function_log = String::from("tokenuri");
+    
+    let valids = evm_core::Valids::new(&contract.code);
+    let mut jump_dest = 0;
+    for i in 0..valids.len() {
+        if valids.is_valid(i) {
+            jump_dest += 1;
+        }
+    }
+
+    let contract_storage: HashMap<H256, Vec<u8>> = contract.storage_changes
+    .iter()
+    .map(|s| (H256::from_slice(s.key.as_ref()), s.new_value.to_vec()))
+    .collect();
+
+    let contract_code = contract.code.clone();
+
+    let code = Rc::new(contract_code);
+
+    log::info!(
+        "\n\n\n\n\nERC721: Trying function {:?} for token: {:?}, of collection: {:?}\n{} valid jump destinations)\ncode len {}",
+        function_log,
+        token_id,
+        contract.name,
+        jump_dest,
+        code.len(),
+    );
+    
+    let token_id_bigint = BigInt::from_str(token_id).unwrap();
+    log::info!("converted tokenid {}", &token_id_bigint);
+    let data = functions::TokenUri {token_id: token_id_bigint}.encode();
+
+
+    let mut machine = evm_core::Machine::new(
+        code,
+        Rc::new(data), // name()
+        // Rc::new(vec![0x5c, 0x97, 0x5a, 0xbb]), // paused()
+        1024,
+        1024,
+    );
+
+    loop {
+        let mut active_opcode: Option<Opcode> = None;
+        if let Some((opcode, stack)) = machine.inspect() {
+            // log::info!(
+            //     "Machine active opcode is {}",
+            //     // display_opcode_input(opcode, stack),
+            // );
+
+            active_opcode = Some(opcode)
+        }
+
+        match machine.step() {
+            Ok(()) => {
+                if let Some(opcode) = active_opcode {
+                    if let Some(_output) = display_opcode_output(opcode, machine.stack()) {
+                        // log::info!("Machine executed opcode {}", output);
+                    }
+                }
+            }
+            Err(res) => {
+                match res {
+                    evm_core::Capture::Exit(ExitReason::Succeed(reason)) => {
+                        match reason {
+                            evm_core::ExitSucceed::Stopped => {
+                                log::info!("EVM stopped gracefully");
+                            }
+                            evm_core::ExitSucceed::Returned => {
+                                let return_value = machine.return_value();
+                                log::info!("EVM returned gracefully {}", Hex(&return_value));
+                                                               
+                                match functions::TokenUri::output(&return_value) {
+                                    Ok(return_value) => {
+                                         return Ok(return_value);
+                                    }
+                                    Err(e) => {
+                                        log::info!("failed to decode output for tokenuri");
+                                    }
+                                }
+                                
+                            }
+                            evm_core::ExitSucceed::Suicided => {
+                                log::info!("EVM suicided gracefully");
+                            }
+                        }
+
+                        return Ok(String::new());
+                    }
+                    evm_core::Capture::Exit(out) => {
+                        return Err(anyhow::anyhow!("Capture exit: {:?}", out));
+                    }
+                    evm_core::Capture::Trap(opcode) => {
+                        match opcode.0 {
+                            // CALLVALUE
+                            0x34 => {
+                                machine.stack_mut().push(H256::zero()).unwrap();
+                            }
+
+                            // SHA3
+                            0x20 => {
+                                let offset = machine.stack_mut().pop().unwrap();
+                                let data_length = machine.stack_mut().pop().unwrap();
+                                let data_memory = machine
+                                    .memory_mut()
+                                    .get(offset.to_usize(), data_length.to_usize());
+                                let mut hash = Keccak::v256();
+                                let mut output = [0u8; 32];
+                                hash.update(&data_memory);
+                                hash.finalize(&mut output);
+                                machine.stack_mut().push(H256::from_slice(&output)).unwrap();
+
+                                log::info!("SHA3 HANDLED \n");
+                            }
+
+                            // SLOAD
+                            0x54 => {
+                                let key = machine.stack_mut().pop().unwrap();
+                                log::info!("storage key {:?}", key);
+
+                                if let Some(value) = contract_storage.get(&key) {
+                                    machine.stack_mut().push(H256::from_slice(value)).unwrap();
+                                    log::info!("SLOAD HANDLED \n")
+                                } else {
+                                    return Err(anyhow::anyhow!(
+                                        "SLOAD unknown storage key {:x}",
+                                        key
+                                    ));
+                                }
+                            }
+
+                            _ => {
+                                return Err(anyhow::anyhow!(
+                                    "ERC721: Capture trap unhandled: {:?}",
+                                    opcode_to_string(opcode)
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 fn execute_on<'a>(
     address: String,
     code: Rc<Vec<u8>>,
     data: Vec<u8>,
-    storage_changes: &HashMap<H256, Vec<u8>>,
+    storage_changes: &'a Vec<&'a StorageChange>,
     function_log: &str,
 ) -> Result<Vec<u8>, anyhow::Error> {
     let valids = evm_core::Valids::new(&code);
@@ -190,7 +358,7 @@ fn execute_on<'a>(
         }
     }
 
-
+    let contract_storage = StorageChanges::new(storage_changes);
 
     log::info!(
         "\n\n\n\n\nERC721: Trying function {:?} for contract: {:?}\n{} valid jump destinations\ncode len {})",
@@ -278,7 +446,7 @@ fn execute_on<'a>(
                                 let key = machine.stack_mut().pop().unwrap();
                                 log::info!("storage key {:?}", key);
 
-                                if let Some(value) = storage_changes.get(&key) {
+                                if let Some(value) = contract_storage.0.get(&key) {
                                     machine.stack_mut().push(H256::from_slice(value)).unwrap();
                                     log::info!("SLOAD HANDLED \n")
                                 } else {

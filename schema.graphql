@@ -1,18 +1,17 @@
-type TokenDeployment @entity(immutable: false) {
+type NftToken @entity(immutable: false) {
     id: ID!
-    name: String
-    symbol: String
-    decimals: BigInt
-    totalSupply: BigInt
+    tokenID: String
+    tokenURI: String
     blocknumber: BigInt
     timestamp: BigInt
+    collection: NftDeployment
 }
 
 type NftDeployment @entity(immutable: false) {
     id: ID!
     name: String
     symbol: String
-    tokenUri: String
     blocknumber: BigInt
     timestamp: BigInt
+    Tokens: [NftToken!] @derivedFrom(field: "collection")
 } 
