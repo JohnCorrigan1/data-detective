@@ -33,7 +33,7 @@ fn map_deployments(blk: Block) -> Result<EntityChanges, substreams::errors::Erro
 
                     if let Some(token) = ERC20Creation::from_call(call) {
                         if let Some(deployment) =
-                            process_erc20_contract(token, blk.number, blk.timestamp().seconds)
+                            process_erc20_contract(token)
                         {
                             tables
                                 .update_row("TokenDeployment", deployment.address)
@@ -51,13 +51,13 @@ fn map_deployments(blk: Block) -> Result<EntityChanges, substreams::errors::Erro
                                 )
                                 .set(
                                     "blocknumber",
-                                    BigInt::from_str(&deployment.blocknumber).unwrap(),
+                                    blk.number,
                                 )
-                                .set("timestamp", deployment.timestamp_seconds);
+                                .set("timestamp", blk.timestamp_seconds());
                         }
                     } else if let Some(token) = ERC721Creation::from_call(all_calls, call) {
                         if let Some(deployment) =
-                            process_erc721_contract(token, blk.number, blk.timestamp().seconds)
+                            process_erc721_contract(token)
                         {
                             tables
                                 .update_row("NftDeployment", deployment.address)
@@ -65,9 +65,9 @@ fn map_deployments(blk: Block) -> Result<EntityChanges, substreams::errors::Erro
                                 .set("symbol", deployment.symbol)
                                 .set(
                                     "blocknumber",
-                                    BigInt::from_str(&deployment.blocknumber).unwrap(),
+                                    blk.number,
                                 )
-                                .set("timestamp", deployment.timestamp_seconds);
+                                .set("timestamp", blk.timestamp_seconds());
                         }
                     }
                 });
