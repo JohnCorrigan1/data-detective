@@ -15,6 +15,10 @@ build:
 run: build
 	substreams run -e $(MAINNET) substreams.yaml graph_out -s $(PIXELMON) -t $(STOP_BLOCK)
 
+.PHONY: runrpc
+runrpc: build
+	substreams run -e $(MAINNET) substreams.yaml map_erc721_rpc -s $(PIXELMON) -t $(STOP_BLOCK)
+
 .PHONY: gui
 gui: build
 	substreams gui -e $(MAINNET) substreams.yaml map_deployments -s $(PIXELMON) -t $(STOP_BLOCK)

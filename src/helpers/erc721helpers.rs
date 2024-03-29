@@ -20,7 +20,7 @@ const SYMBOL_FN_SIG: &str = "95d89b41";
 const TOKENURI_FN_SIG: &str = "c87b56dd";
 
 
-fn contains_erc721_fns(code_string: &str) -> bool {
+pub fn contains_erc721_fns(code_string: &str) -> bool {
     code_string.contains(SAFE_TRANSFER_FROM_FN_SIG)
         && code_string.contains(NAME_FN_SIG)
         && code_string.contains(SYMBOL_FN_SIG)

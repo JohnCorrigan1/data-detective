@@ -44,4 +44,12 @@ modules:
     output:
       type: proto:sf.substreams.sink.entity.v1.EntityChanges
 
+  - name: map_erc721_rpc
+    kind: map
+    initialBlock: 14154677
+    inputs:
+      - source: sf.ethereum.type.v2.Block
+    output:
+      type: proto:sf.substreams.sink.entity.v1.EntityChanges
+
 network: mainnet

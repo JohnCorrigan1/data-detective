@@ -1,6 +1,7 @@
 mod abi;
 mod helpers;
 mod pb;
+mod rpc;
 use abi::erc721::events::Transfer as Erc721TransferEvent;
 use helpers::erc721helpers::*;
 use pb::deployments::{Erc721Deployment, Erc721Mint, MasterProto};
@@ -32,6 +33,15 @@ fn map_blocks(blk: Block) -> Result<MasterProto, substreams::errors::Error> {
                 .filter(|call| !call.state_reverted)
                 .for_each(|call| {
                     let all_calls = tx.calls.as_ref();
+
+                    if call.call_type == eth::CallType::Create as i32 {
+                        if let Some(token) = ERC721Creation::from_call(all_calls, call) {
+                            if let Some(deployment) = process_erc721_contract(token) {
+                                deployments.push(deployment);
+                            }
+                        }
+                    }
+
                     call.logs.iter().for_each(|log| {
                         if let Some(transfer) = Erc721TransferEvent::match_and_decode(log) {
                             if transfer.from == NULL_ADDRESS {
@@ -44,13 +54,6 @@ fn map_blocks(blk: Block) -> Result<MasterProto, substreams::errors::Error> {
                             }
                         }
                     });
-                    if call.call_type == eth::CallType::Create as i32 {
-                        if let Some(token) = ERC721Creation::from_call(all_calls, call) {
-                            if let Some(deployment) = process_erc721_contract(token) {
-                                deployments.push(deployment);
-                            }
-                        }
-                    }
                 });
         });
 
