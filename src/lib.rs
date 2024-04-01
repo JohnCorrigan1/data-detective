@@ -61,7 +61,7 @@ fn erc721_out(blk: Block) -> Result<EntityChanges, substreams::errors::Error> {
                             for change in nft_contract.storage_changes {
                                 tables
                                     .update_row(
-                                        "NftStorageChange",
+                                        "StorageChange",
                                         format!(
                                             "{}:{}",
                                             Hex::encode(&call.address),
