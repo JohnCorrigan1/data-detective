@@ -10,7 +10,7 @@ dataSources:
     network: mainnet 
     source:
       package:
-        moduleName: map_deployments
+        moduleName: erc721_out 
         file: ./data-detective-v0.0.1.spkg
     mapping:
       kind: substreams/graph-entities

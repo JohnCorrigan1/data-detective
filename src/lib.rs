@@ -3,8 +3,6 @@ mod helpers;
 mod pb;
 use abi::erc721::events::Transfer as Erc721TransferEvent;
 use helpers::erc721helpers::*;
-use pb::deployments::{Erc721Deployment, Erc721Mint, MasterProto};
-use substreams::store::{StoreGet, StoreGetProto, StoreNew, StoreSet, StoreSetProto};
 use substreams::Hex;
 use substreams_entity_change::pb::entity::EntityChanges;
 use substreams_entity_change::tables::Tables;
@@ -20,9 +18,9 @@ pub struct ContractCreation {
 }
 
 #[substreams::handlers::map]
-fn map_blocks(blk: Block) -> Result<MasterProto, substreams::errors::Error> {
-    let mut deployments = Vec::new();
-    let mut mints = Vec::new();
+fn erc721_out(blk: Block) -> Result<EntityChanges, substreams::errors::Error> {
+    let mut tables = Tables::new();
+
     blk.transaction_traces
         .iter()
         .filter(|tx| tx.status == 1)
@@ -35,68 +33,49 @@ fn map_blocks(blk: Block) -> Result<MasterProto, substreams::errors::Error> {
                     call.logs.iter().for_each(|log| {
                         if let Some(transfer) = Erc721TransferEvent::match_and_decode(log) {
                             if transfer.from == NULL_ADDRESS {
-                                mints.push(Erc721Mint {
-                                    token_id: transfer.token_id.to_string(),
-                                    address: Hex::encode(&log.address),
-                                    blocknumber: blk.number,
-                                    timestamp_seconds: blk.timestamp_seconds(),
-                                });
+                                tables
+                                    .update_row(
+                                        "NftToken",
+                                        format!(
+                                            "{}-{}",
+                                            Hex::encode(&log.address),
+                                            transfer.token_id
+                                        ),
+                                    )
+                                    .set("tokenID", &transfer.token_id)
+                                    .set("address", Hex::encode(&log.address))
+                                    .set("blocknumber", blk.number)
+                                    .set("timestamp", blk.timestamp_seconds())
+                                    .set("collection", Hex::encode(&log.address));
                             }
                         }
                     });
                     if call.call_type == eth::CallType::Create as i32 {
-                        if let Some(token) = ERC721Creation::from_call(all_calls, call) {
-                            if let Some(deployment) = process_erc721_contract(token) {
-                                deployments.push(deployment);
+                        if let Some(nft_contract) = ERC721Creation::from_call(all_calls, call) {
+                            tables
+                                .update_row("NftDeployment", Hex::encode(&call.address))
+                                .set("code", nft_contract.code)
+                                .set("blocknumber", blk.number)
+                                .set("timestamp", blk.timestamp_seconds());
+
+                            for change in nft_contract.storage_changes {
+                                tables
+                                    .update_row(
+                                        "NftStorageChange",
+                                        format!(
+                                            "{}:{}",
+                                            Hex::encode(&call.address),
+                                            Hex::encode(&change.key)
+                                        ),
+                                    )
+                                    .set("key", &change.key)
+                                    .set("new_value", &change.new_value)
+                                    .set("deployment", Hex::encode(&call.address));
                             }
                         }
                     }
                 });
         });
 
-    Ok(MasterProto {
-        mints,
-        contracts: deployments,
-    })
-}
-
-#[substreams::handlers::store]
-pub fn store_contract_data(contracts: MasterProto, store: StoreSetProto<Erc721Deployment>) {
-    for contract in contracts.contracts {
-        store.set(0, &contract.address, &contract)
-    }
-}
-
-#[substreams::handlers::map]
-pub fn graph_out(
-    master: MasterProto,
-    store: StoreGetProto<Erc721Deployment>,
-) -> Result<EntityChanges, substreams::errors::Error> {
-    let mut tables = Tables::new();
-    for mint in master.mints.iter() {
-        if let Some(contract) = store.get_at(0, &mint.address) {
-            let token_uri = match get_token_uri(&contract, &mint.token_id) {
-                Ok(token_uri) => token_uri,
-
-                Err(_e) => String::new(),
-            };
-            tables
-                .update_row("NftToken", format!("{}-{}", mint.address, mint.token_id))
-                .set("tokenID", &mint.token_id)
-                .set("tokenURI", token_uri)
-                .set("address", &mint.address)
-                .set("blocknumber", mint.blocknumber)
-                .set("timestamp", mint.timestamp_seconds)
-                .set("collection", &mint.address);
-        }
-    }
-    for contract in master.contracts {
-        tables
-            .update_row("NftDeployment", contract.address)
-            .set("name", contract.name)
-            .set("symbol", contract.symbol)
-            .set("blocknumber", contract.blocknumber)
-            .set("timestamp", contract.timestamp_seconds);
-    }
     Ok(tables.to_entity_changes())
 }

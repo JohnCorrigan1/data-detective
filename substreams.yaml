@@ -18,29 +18,11 @@ binaries:
     file: ./target/wasm32-unknown-unknown/release/substreams.wasm
 
 modules:
-  - name: map_blocks
+  - name: erc721_out
     kind: map
-    initialBlock: 14154677
+    initialBlock: 5251724
     inputs:
       - source: sf.ethereum.type.v2.Block
-    output:
-      type: proto:deployments.MasterProto
-
-  - name: store_contract_data
-    kind: store
-    initialBlock: 14154677
-    updatePolicy: set
-    valueType: proto:deployments.ERC721Deployment
-    inputs:
-      - map: map_blocks
-
-  - name: graph_out
-    kind: map
-    initialBlock: 14154677
-    inputs:
-      - map: map_blocks
-      - store: store_contract_data
-        mode: get
     output:
       type: proto:sf.substreams.sink.entity.v1.EntityChanges
 
